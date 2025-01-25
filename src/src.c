@@ -1,6 +1,7 @@
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
+#include<pthread.h>
 
 #define true  1
 #define false 0
@@ -32,10 +33,11 @@ struct mm_res {
 	int column;
 	int score;
 };
+enum orientation { VERT = 0, HORIZ, DIAG1, DIAG2 };
 
 struct chain {
 	int length;
-	enum orientation { VERT = 0, HORIZ, DIAG1, DIAG2 } orient;
+	enum orientation orient;
 };
 
 void print_board(board b) {
@@ -178,17 +180,60 @@ int diagonal2_chain_length(board b, const int ri, const int ci,
 	return count;
 }
 
+typedef struct {
+    board b;
+    const int ri;
+    const int ci;
+    const char sym;
+    enum orientation orient; 
+}THREAD_DATA;
+
+void* threadEntryPoint(void* arg){
+
+    //static int count = 0;
+	//count++;
+	//printf("Thread entry point call %d \n",count);
+    THREAD_DATA* data = (THREAD_DATA*)arg;
+    int* result = malloc(sizeof(int));
+    if(data->orient == 0)
+        *result = vertical_chain_length(data->b,data->ri, data->ci, data->sym);
+    else if(data->orient == 1)    
+        *result = horizontal_chain_length(data->b,data->ri, data->ci, data->sym);
+    else if(data->orient == 2)
+        *result = diagonal1_chain_length(data->b,data->ri, data->ci, data->sym);
+    else
+        *result = diagonal2_chain_length(data->b,data->ri, data->ci, data->sym);
+
+    pthread_exit((void*)result);
+    
+}
+
 struct chain longest_chain_from_point(board b, const int ri, const int ci,
-									  bool playerturn) {
+									  bool playerturn){
+	
+	static int count = 0;
+	count++;
+    printf("LONGEST CHAIN CALLED %d\n",count);                                 
 	const char sym	 = playerturn ? PLAYER_SYMBOL : AI_SYMBOL;
 	struct chain ret = {INT_MIN, 0};
 	int len[4];
+    pthread_t threads[4];
 
-	len[0] = vertical_chain_length(b, ri, ci, sym);
-	len[1] = horizontal_chain_length(b, ri, ci, sym);
-	len[2] = diagonal1_chain_length(b, ri, ci, sym);
-	len[3] = diagonal2_chain_length(b, ri, ci, sym);
+    for(int i = 0 ; i < 4 ; i++){
+        THREAD_DATA thread_data = {b,ri,ci,sym,i}; // i is for orientation
+        void* threadArgument = &thread_data;
+        pthread_create(&threads[i],NULL, threadEntryPoint,threadArgument);
+        //printf("thread %d created\n",i);
+    }
 
+    for(int i = 0 ; i < 4 ; i++){
+         void* catchReturn;
+        pthread_join(threads[i],&catchReturn);
+        len[i] = *((int*)catchReturn);
+        free(catchReturn);
+        //printf("THREAD JOINED");
+    }
+ 
 	for (int i = 0; i < 4; i++)
 		if (ret.length < len[i])
 			ret = (struct chain){len[i], i};
